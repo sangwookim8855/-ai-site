@@ -14,25 +14,33 @@ PROMPTS = {
 }
 
 
-def ask_gemini(mode, topic):
-    key = os.environ.get("GEMINI_API_KEY")
-    if not key:
-        raise RuntimeError("NO_KEY")
-    model = os.environ.get("GEMINI_MODEL", "gemini-flash-latest")
-    url = "https://generativelanguage.googleapis.com/v1beta/models/" + model + ":generateContent"
+def ask_ai(mode, topic):
+    key = os.environ.get("OPENAI_API_KEY")
+    base = os.environ.get("OPENAI_BASE_URL")
+    model = os.environ.get("OPENAI_MODEL")
+    if not key or not base or not model:
+        raise RuntimeError("NO_CONFIG")
+    url = base.rstrip("/") + "/chat/completions"
     body = {
-        "system_instruction": {"parts": [{"text": SYSTEM}]},
-        "contents": [{"parts": [{"text": PROMPTS[mode].format(topic=topic)}]}],
+        "model": model,
+        "messages": [
+            {"role": "system", "content": SYSTEM},
+            {"role": "user", "content": PROMPTS[mode].format(topic=topic)},
+        ],
     }
     req = urllib.request.Request(
         url,
         data=json.dumps(body).encode("utf-8"),
-        headers={"Content-Type": "application/json", "x-goog-api-key": key},
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": "Bearer " + key,
+            "User-Agent": "Mozilla/5.0",
+        },
         method="POST",
     )
     with urllib.request.urlopen(req, timeout=25) as r:
         data = json.loads(r.read().decode("utf-8"))
-    return data["candidates"][0]["content"]["parts"][0]["text"]
+    return data["choices"][0]["message"]["content"]
 
 
 class handler(BaseHTTPRequestHandler):
@@ -61,10 +69,10 @@ class handler(BaseHTTPRequestHandler):
             return self._send(400, {"error": "입력은 100자 이내로 해 주세요."})
 
         try:
-            result = ask_gemini(mode, topic)
+            result = ask_ai(mode, topic)
             return self._send(200, {"result": result})
         except RuntimeError:
-            return self._send(500, {"error": "서버 설정 오류입니다. (API 키 없음)"})
+            return self._send(500, {"error": "서버 설정 오류입니다. (환경 변수 없음)"})
         except urllib.error.HTTPError as e:
             return self._send(502, {"error": "AI 서비스 오류가 발생했습니다. (코드 " + str(e.code) + ")"})
         except (urllib.error.URLError, TimeoutError):
